@@ -1,0 +1,3 @@
+/scratch/thanv/HistogramSlice/build/CMakeFiles/rebuild_cache.dir
+/scratch/thanv/HistogramSlice/build/CMakeFiles/edit_cache.dir
+/scratch/thanv/HistogramSlice/build/CMakeFiles/HistogramSlice.dir

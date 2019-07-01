@@ -1,0 +1,17 @@
+# ignore asv files
+*.asv
+
+# ignore .nii files
+*.nii
+
+# ignore data
+data/
+
+# ignore .sh files
+*.sh
+
+# ignore output
+output/
+
+# ignore .log
+*.log
