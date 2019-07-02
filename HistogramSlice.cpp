@@ -58,8 +58,8 @@ int main(int argc, char * argv []){
 		filename = argv[1];
 		inputType = argv[2];
 		outputType = argv[3];
-		orientation = argv[4];
-		scaleToUsual = argv[5];
+		orientation = atoi(argv[4]);
+		scaleToUsual = atoi(argv[5]);
 	} else {
 		std::cout << "Not enough arguments, went with default" << std::endl;
 		filename = "Smallfield_OCT_Angiography_Volume_fovea"; //filename in data/
@@ -70,19 +70,18 @@ int main(int argc, char * argv []){
 
 	}
 	//timing
-	auto start = std::chrono::high_resolution_clock::now();	
+	auto begin = std::chrono::high_resolution_clock::now();	
 
-	std::string inputFileName = makeInputFileName(filename, inputType);
+	std::string inputFileName = makeInputFileName(filename, inputType);	// input is assumed in ../data/
 	std::string outputFileName = makeOutputFileName(filename, outputType);
 	
 	auto stop = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
 	std::cout << duration.count() << " milliseconds for reading in the file and creating constants"<<std::endl;
 	
 	// setting up reader type
 	using imagePixelType = short;						// short is faster
-	using ImageType = itk::Image< InputPixelType, Dimension>;		// ImageType is used for both input and output
-	std::string inputFileName = makeInputFileName(filename, filetype);	// input image is assumed to be in ../data/
+	using ImageType = itk::Image< imagePixelType, Dimension>;		// ImageType is used for both input and output
 	using ReaderType = itk::ImageFileReader< ImageType >;
 	
 	// Setting up writer
@@ -104,7 +103,7 @@ int main(int argc, char * argv []){
     	}
 
 	// get image specifications for use
-	const ImageType * inputImage = imageReader->GetOutput();			// get the input image
+	ImageType * inputImage = imageReader->GetOutput();				// get the input image
 	ImageType::RegionType inputRegion = inputImage->GetLargestPossibleRegion();	// get image region
 	ImageType::SizeType size = inputRegion.GetSize();				//getting the region size
 	ImageType::IndexType start = inputRegion.GetIndex();				// get index start
@@ -116,7 +115,7 @@ int main(int argc, char * argv []){
 	using ExtractFilterType = itk::ExtractImageFilter< ImageType, ImageType >; 	// output 3d slices (not 2d slices)
 	
 	stop = std::chrono::high_resolution_clock::now();
-	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
 	std::cout << duration.count() << " milliseconds to set up all reader writer extraction filter" << std::endl;
 
 
@@ -140,33 +139,60 @@ int main(int argc, char * argv []){
 	ImageType::Pointer middleSlice = extractMiddleFilter->GetOutput();		// get middle slice for later use
 
 
+	stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
+	std::cout << duration.count() << " milliseconds to extract middle slice" << std::endl;
 	
 	/********** SLICE EXTRACTION AND HISTOGRAM MATCH FILTER **********/
 	
+
+	// setting up HistogramMatchFilter (HMFilter)
 	using HMFilterType = itk::HistogramMatchingImageFilter< ImageType , ImageType >;
+	HMFilterType::Pointer intensityEqualizeFilter = HMFilterType::New();
+	intensityEqualizeFilter->SetNumberOfHistogramLevels(100);
+	intensityEqualizeFilter->SetNumberOfMatchPoints(15);
+	intensityEqualizeFilter->ThresholdAtMeanIntensityOn();
+	intensityEqualizeFilter->SetReferenceImage( middleSlice );
 
-	for (int i = 0; i < size[orientation]; ++i){
+	// Setting up Paste Filter
+	ImageType * outputImage = inputImage;					// make outputImage
+	using PasteFilterType = itk::PasteImageFilter< ImageType, ImageType >;
+	PasteFilterType::Pointer pasteFilter = PasteFilterType::New();
+	pasteFilter->SetSourceImage( outputImage );
 
+	stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
+	std::cout << duration.count() << " milliseconds to set up histogram and paste filter" << std::endl;
+
+
+
+	for (int i = 1; i <= size[orientation]; ++i){
 		/*** SLICE EXTRACTION ***/
 		// set the index need to extract a slice
-		ImageType::IndexType sliceStart = start;					// create a index
-		sliceStart[orientation] = i;							// pick the index
+		ImageType::IndexType sliceStart = start; std::cout<< 1 << "\n";				// create a index
+		sliceStart[orientation] = i;std::cout<< 2 << "\n";							// pick the index
 	
 		// set up extraction region for a slice
-		ImageType::RegionType desiredSliceRegion; 					// create slice region
-		desiredMiddleRegion.SetSize( sliceSize ); 					// set size (with collapsed direction) 
-		desiredMiddleRegion.SetIndex( sliceStart ); 					// set extraction region index start
+		ImageType::RegionType desiredSliceRegion; std::cout<< 3 << "\n";					// create slice region
+		desiredSliceRegion.SetSize( sliceSize ); std::cout<< 4 << "\n";					// set size (with collapsed direction) 
+		desiredSliceRegion.SetIndex( sliceStart ); std::cout<< 5 << "\n";					// set extraction region index start
 
 		// setting up Extraction filter for middle slice
-		ExtractFilterType::Pointer extractSliceFilter = ExtractFilterType::New();	// make filter to extract a slice
-		extractSliceFilter->SetDirectionCollapseToSubmatrix();				// set flag to collapse
-		extractSliceFilter->SetExtractionRegion( desiredMiddleRegion );			// set region
-		extractSliceFilter->SetInput( inputImage );					// set input image
-		ImageType::Pointer currentSlice = extractSliceFilter->GetOutput();		// get slice for later use
+		ExtractFilterType::Pointer extractSliceFilter = ExtractFilterType::New();std::cout<< 6 << "\n";	// make filter to extract a slice
+		extractSliceFilter->SetDirectionCollapseToSubmatrix();std::cout<< 7 << "\n";				// set flag to collapse
+		extractSliceFilter->SetExtractionRegion( desiredSliceRegion );	std::cout<< 8 << "\n";		// set region
+		extractSliceFilter->SetInput( inputImage );std::cout<< 9 << "/n";					// set input image
+		ImageType::Pointer currentSlice = extractSliceFilter->GetOutput();std::cout<< 10 << "\n";		// get slice for later use
 
+		// update HMFilter
+		intensityEqualizeFilter->SetInput( currentSlice );std::cout<< 11 << "\n";
+		intensityEqualizeFilter->Update();std::cout<< 12 << "\n";
 
-		
-
+		// use pasteFilter
+		pasteFilter->SetDestinationImage( intensityEqualizeFilter->GetOutput() );std::cout<< 13 << "\n";
+		pasteFilter->SetDestinationIndex( sliceStart );std::cout<< 14 << "\n";
+		pasteFilter->SetSourceRegion( inputRegion );std::cout<< 15 << "\n";
+		pasteFilter->Update();std::cout<< 16 << "\n";
 	}
 
 
@@ -178,9 +204,12 @@ int main(int argc, char * argv []){
 
 
 
+	stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
+	std::cout << duration.count() << " about to use writer" << std::endl;
 
 
-  	writer->SetInput( filter->GetOutput() );
+  	writer->SetInput( pasteFilter->GetOutput() );
 
 	try{
 		writer->Update();
@@ -188,6 +217,8 @@ int main(int argc, char * argv []){
 		std::cerr << "ExceptionObject caught" << std::endl;
 		std::cerr << err << std::endl;
 	}
+
+	return EXIT_SUCCESS;
 }
 
 //Creating the input file name for a nifti
