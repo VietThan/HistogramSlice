@@ -1,7 +1,7 @@
-// File name: HistogramSlice.cpp
-// Author: Viet Than
-// Email: viet.than@vanderbilt.edu (thanhoangviet@gmail.com)
-// Lab: Medical Imaging Lab under Ipek Oguz
+// File name: 	HistogramSlice.cpp
+// Author: 	Viet Than
+// Email: 	viet.than@vanderbilt.edu (thanhoangviet@gmail.com)
+// Lab: 	Medical Imaging Lab under Ipek Oguz at Vanderbilt University, TN, USA
 // Description: Histogram normalize a volume slice by slice with reference to the slice middle,
 // 		output differently depend on direction.
 
@@ -10,8 +10,9 @@
 #include "itkImage.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
-#include "itkExtractImageFilter.h"
 
+#include "itkExtractImageFilter.h"
+#include "itkPasteImageFilter.h"
 
 #include "itkHistogramMatchingImageFilter.h"
 #include "itkRescaleIntensityImageFilter.h"
@@ -19,8 +20,6 @@
 #include <string>
 #include <iostream>
 #include <chrono>
-#include <iomanip> //set precision
-#include <sstream> //stringstream
 
 using namespace itk;
 
@@ -29,8 +28,6 @@ std::string makeInputFileName (const std::string &filename, const std::string &f
 std::string makeOutputFileName (const std::string &filename, const std::string &filetype);
 
 
-template <typename T> std::string returnPointString(const T &number);
-void extract2DNormal (const std::string &filename, const std::string &filetype);
 
 // 5 arguments:
 // 1 - filename
@@ -83,9 +80,9 @@ int main(int argc, char * argv []){
 	std::cout << duration.count() << " milliseconds for reading in the file and creating constants"<<std::endl;
 	
 	// setting up reader type
-	using imagePixelType = short;
-	using ImageType = itk::Image< InputPixelType, 3>;
-	std::string inputFileName = makeInputFileName(filename, filetype);
+	using imagePixelType = short;						// short is faster
+	using ImageType = itk::Image< InputPixelType, Dimension>;		// ImageType is used for both input and output
+	std::string inputFileName = makeInputFileName(filename, filetype);	// input image is assumed to be in ../data/
 	using ReaderType = itk::ImageFileReader< ImageType >;
 	
 	// Setting up writer
@@ -93,46 +90,84 @@ int main(int argc, char * argv []){
 	WriterType::Pointer writer = WriterType::New();
 	writer->SetFileName( outputFileName );
 
-	/*THIS IS ALL TO EXTRACT MIDDLE SLICE*/
+	// setting up image reader
+	ReaderType::Pointer imageReader = ReaderType::New();
+	imageReader->SetFileName( inputFileName );
 	
-	// setting up middle slice reader
-	ReaderType::Pointer middleReader = ReaderType::New();
-	middleReader->SetFileName( inputFileName );
-	
-	// update middle slice reader with filename
+	// retrieve image with Update()
   	try{
-    		middleReader->Update();
+    		imageReader->Update();
 	} catch( itk::ExceptionObject & err ){
     		std::cerr << "ExceptionObject caught !" << std::endl;
     		std::cerr << err << std::endl;
     		return EXIT_FAILURE;
     	}
 
-	// getting the middle slice from middle slice reader
-	const ImageType * inputImage = middleReader->GetOutput(); // get the input image
-	ImageType::RegionType inputRegion = inputImage->GetLargestPossibleRegion(); // get image region
-	ImageType::SizeType size = inputRegion.GetSize(); //getting the region size
-	ImageType::IndexType middleStart = inputRegion.GetIndex(); // get index
-	const unsigned int midSliceNumber = (int) size[orientation]/2; // finding middle slice
-	ImageType::SizeType middleSize = size; // set up the size for middle slice
-	middleSize[orientation] = 1; // setting the orientation direction to 1 for collapse for middle slice size
+	// get image specifications for use
+	const ImageType * inputImage = imageReader->GetOutput();			// get the input image
+	ImageType::RegionType inputRegion = inputImage->GetLargestPossibleRegion();	// get image region
+	ImageType::SizeType size = inputRegion.GetSize();				//getting the region size
+	ImageType::IndexType start = inputRegion.GetIndex();				// get index start
+	
+	// set size of slice
+	ImageType::SizeType sliceSize = size;						// set up the size for any slice
+	sliceSize[orientation] = 1; 							// setting the orientation direction to 1 for collapse
 
+	using ExtractFilterType = itk::ExtractImageFilter< ImageType, ImageType >; 	// output 3d slices (not 2d slices)
+	
+	stop = std::chrono::high_resolution_clock::now();
+	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+	std::cout << duration.count() << " milliseconds to set up all reader writer extraction filter" << std::endl;
+
+
+	/********** MIDDLE SLICE EXTRACTION **********/
+
+	// set the index need to extract middle slice
+	const unsigned int midSliceNumber = (int) size[orientation]/2;			// finding middle slice
+	ImageType::IndexType middleStart = start;					// create a index for middle slice
+	middleStart[orientation] = midSliceNumber;					// pick the middle slice index
+	
 	// set up extraction region for middle slice
-	ImageType::RegionType desiredMiddleRegion; // create middle region
-	desiredMiddleRegion.SetSize( middleSize ); // set middle region to size (with collapsed direction)
-	desiredMiddleRegion.SetIndex( middleStart ); // set extraction region index start
+	ImageType::RegionType desiredMiddleRegion; 					// create middle region
+	desiredMiddleRegion.SetSize( sliceSize ); 					// set size (with collapsed direction) for middle region
+	desiredMiddleRegion.SetIndex( middleStart ); 					// set extraction region index start
 
 	// setting up Extraction filter for middle slice
-	using ExtractFilterType = itk::ExtractImageFilter< ImageType, ImageType >; //
-	ExtractFilterType::Pointer extractMiddleFilter = ExtractFilterType::New();
-	extractMiddleFilter->SetDirectionCollapseToSubmatrix();
-	extractMiddleFilter->SetExtractionRegion( desiredMiddleRegion );
-	extractFilter->SetInput( inputImage );
+	ExtractFilterType::Pointer extractMiddleFilter = ExtractFilterType::New();	// make filter to extract middle slice
+	extractMiddleFilter->SetDirectionCollapseToSubmatrix();				// set flag to collapse
+	extractMiddleFilter->SetExtractionRegion( desiredMiddleRegion );		// set region
+	extractMiddleFilter->SetInput( inputImage );					// set input image
+	ImageType::Pointer middleSlice = extractMiddleFilter->GetOutput();		// get middle slice for later use
 
-
-	/*THIS IS ALL FOR EVERY OTHER SLICE*/
 
 	
+	/********** SLICE EXTRACTION AND HISTOGRAM MATCH FILTER **********/
+	
+	using HMFilterType = itk::HistogramMatchingImageFilter< ImageType , ImageType >;
+
+	for (int i = 0; i < size[orientation]; ++i){
+
+		/*** SLICE EXTRACTION ***/
+		// set the index need to extract a slice
+		ImageType::IndexType sliceStart = start;					// create a index
+		sliceStart[orientation] = i;							// pick the index
+	
+		// set up extraction region for a slice
+		ImageType::RegionType desiredSliceRegion; 					// create slice region
+		desiredMiddleRegion.SetSize( sliceSize ); 					// set size (with collapsed direction) 
+		desiredMiddleRegion.SetIndex( sliceStart ); 					// set extraction region index start
+
+		// setting up Extraction filter for middle slice
+		ExtractFilterType::Pointer extractSliceFilter = ExtractFilterType::New();	// make filter to extract a slice
+		extractSliceFilter->SetDirectionCollapseToSubmatrix();				// set flag to collapse
+		extractSliceFilter->SetExtractionRegion( desiredMiddleRegion );			// set region
+		extractSliceFilter->SetInput( inputImage );					// set input image
+		ImageType::Pointer currentSlice = extractSliceFilter->GetOutput();		// get slice for later use
+
+
+		
+
+	}
 
 
 
@@ -143,50 +178,8 @@ int main(int argc, char * argv []){
 
 
 
-	using InputPixelType = float;
-	using OutputPixelType = float;
-
-	using InputImageType = itk::Image< InputPixelType, 3 >;
-	using OutputImageType = itk::Image< OutputPixelType, 2>;
-
-	using ReaderType = itk::ImageFileReader< InputImageType >;
-	using WriterType = itk::ImageFileWriter< OutputImageType >;
-
-	std::string outputName = "../output/";
-	outputName.append(filename);
-	outputName.append("_ChosenMiddleSlice").append(".tif");
-
-	ReaderType::Pointer reader = ReaderType::New();
-	WriterType::Pointer writer = WriterType::New();
 
 
-	reader->SetFileName( inputFileName );
-	writer->SetFileName( outputName );
-	reader->Update();
-
-	using FilterType = itk::ExtractImageFilter< InputImageType, OutputImageType > ;
-	FilterType::Pointer filter = FilterType::New();
-	filter->InPlaceOn();
-	filter->SetDirectionCollapseToSubmatrix();
-
-	InputImageType::RegionType inputRegion = reader->GetOutput()->GetLargestPossibleRegion();
-
-	InputImageType::SizeType size = inputRegion.GetSize();
-	size[0] = 0;
-	std::cout << size << std::endl;
-
-	InputImageType::IndexType start = inputRegion.GetIndex();
-	const unsigned int sliceNumber = 250;
-	start[0] = sliceNumber;
-	std::cout << start << std::endl;
-
-	InputImageType::RegionType desiredRegion;
-	desiredRegion.SetSize( size );
-	desiredRegion.SetIndex( start );
-
-	filter->SetExtractionRegion( desiredRegion );
-
-  	filter->SetInput( reader->GetOutput() );
   	writer->SetInput( filter->GetOutput() );
 
 	try{
@@ -212,110 +205,6 @@ std::string makeOutputFileName (const std::string &filename, const std::string &
 	OutputFileName.append("_HistogramFilterMid");
 	OutputFileName.append(filetype);
 	return OutputFileName;
-}
-
-template <typename T> std::string returnPointString(const T &number){
-    std::stringstream stream;
-    stream << std::fixed << std::setprecision(1) << number;
-    std::string s = stream.str();
-
-    s.replace(s.find('.'), 1, "p");
-    return s;
-}
-
-void extract2DNormal (const std::string &filename, const std::string &filetype){
-	using InputPixelType = float;
-	using OutputPixelType = float;
-
-	using InputImageType = itk::Image< InputPixelType, 3 >;
-	using OutputImageType = itk::Image< OutputPixelType, 2>;
-
-	using ReaderType = itk::ImageFileReader< InputImageType >;
-	using WriterType = itk::ImageFileWriter< OutputImageType >;
-
-	std::string inputFileName = makeInputFileName(filename, filetype);
-	std::string outputName = "../output/";
-	outputName.append(filename);
-	outputName.append("_ChosenMiddleSlice").append(".tif");
-
-	ReaderType::Pointer reader = ReaderType::New();
-	WriterType::Pointer writer = WriterType::New();
-
-
-	reader->SetFileName( inputFileName );
-	writer->SetFileName( outputName );
-	reader->Update();
-
-	using FilterType = itk::ExtractImageFilter< InputImageType, OutputImageType > ;
-	FilterType::Pointer filter = FilterType::New();
-	filter->InPlaceOn();
-	filter->SetDirectionCollapseToSubmatrix();
-
-	InputImageType::RegionType inputRegion = reader->GetOutput()->GetLargestPossibleRegion();
-
-    std::stringstream stream;
-    stream << std::fixed << std::setprecision(1) << number;
-    std::string s = stream.str();
-
-    s.replace(s.find('.'), 1, "p");
-    return s;
-}
-
-void extract2DNormal (const std::string &filename, const std::string &filetype){
-	using InputPixelType = float;
-	using OutputPixelType = float;
-
-	using InputImageType = itk::Image< InputPixelType, 3 >;
-	using OutputImageType = itk::Image< OutputPixelType, 2>;
-
-	using ReaderType = itk::ImageFileReader< InputImageType >;
-	using WriterType = itk::ImageFileWriter< OutputImageType >;
-
-	std::string inputFileName = makeInputFileName(filename, filetype);
-	std::string outputName = "../output/";
-	outputName.append(filename);
-	outputName.append("_ChosenMiddleSlice").append(".tif");
-
-	ReaderType::Pointer reader = ReaderType::New();
-	WriterType::Pointer writer = WriterType::New();
-
-
-	reader->SetFileName( inputFileName );
-	writer->SetFileName( outputName );
-	reader->Update();
-
-	using FilterType = itk::ExtractImageFilter< InputImageType, OutputImageType > ;
-	FilterType::Pointer filter = FilterType::New();
-	filter->InPlaceOn();
-	filter->SetDirectionCollapseToSubmatrix();
-
-	InputImageType::RegionType inputRegion = reader->GetOutput()->GetLargestPossibleRegion();
-
-	InputImageType::SizeType size = inputRegion.GetSize();
-	size[0] = 0;
-	std::cout << size << std::endl;
-
-	InputImageType::IndexType start = inputRegion.GetIndex();
-	const unsigned int sliceNumber = 250;
-	start[0] = sliceNumber;
-	std::cout << start << std::endl;
-
-	InputImageType::RegionType desiredRegion;
-	desiredRegion.SetSize( size );
-	desiredRegion.SetIndex( start );
-
-	filter->SetExtractionRegion( desiredRegion );
-
-  	filter->SetInput( reader->GetOutput() );
-  	writer->SetInput( filter->GetOutput() );
-
-	try{
-		writer->Update();
-	} catch (itk::ExceptionObject &err) {
-		std::cerr << "ExceptionObject caught" << std::endl;
-		std::cerr << err << std::endl;
-	}
-
 }
 
 
