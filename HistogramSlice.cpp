@@ -130,15 +130,19 @@ int main(int argc, char * argv []){
 	ImageType::RegionType desiredMiddleRegion; 					// create middle region
 	desiredMiddleRegion.SetSize( sliceSize ); 					// set size (with collapsed direction) for middle region
 	desiredMiddleRegion.SetIndex( middleStart ); 					// set extraction region index start
-
+	std::cout << sliceSize << std::endl;
+	std::cout << middleStart << std::endl;
 	// setting up Extraction filter for middle slice
 	ExtractFilterType::Pointer extractMiddleFilter = ExtractFilterType::New();	// make filter to extract middle slice
 	extractMiddleFilter->SetDirectionCollapseToSubmatrix();				// set flag to collapse
 	extractMiddleFilter->SetExtractionRegion( desiredMiddleRegion );		// set region
 	extractMiddleFilter->SetInput( inputImage );					// set input image
+	extractMiddleFilter->Update();
 	ImageType::Pointer middleSlice = extractMiddleFilter->GetOutput();		// get middle slice for later use
 
-
+	std::cout << "right after extraction\n";
+	std::cout << middleSlice->GetLargestPossibleRegion() << "\n";
+	
 	stop = std::chrono::high_resolution_clock::now();
 	duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - begin);
 	std::cout << duration.count() << " milliseconds to extract middle slice" << std::endl;
@@ -176,16 +180,20 @@ int main(int argc, char * argv []){
 		ImageType::RegionType desiredSliceRegion; std::cout<< 3 << "\n";					// create slice region
 		desiredSliceRegion.SetSize( sliceSize ); std::cout<< 4 << "\n";					// set size (with collapsed direction) 
 		desiredSliceRegion.SetIndex( sliceStart ); std::cout<< 5 << "\n";					// set extraction region index start
+		std::cout << "slice number = " << i << " \n";
 
 		// setting up Extraction filter for middle slice
 		ExtractFilterType::Pointer extractSliceFilter = ExtractFilterType::New();std::cout<< 6 << "\n";	// make filter to extract a slice
 		extractSliceFilter->SetDirectionCollapseToSubmatrix();std::cout<< 7 << "\n";				// set flag to collapse
 		extractSliceFilter->SetExtractionRegion( desiredSliceRegion );	std::cout<< 8 << "\n";		// set region
-		extractSliceFilter->SetInput( inputImage );std::cout<< 9 << "/n";					// set input image
+		extractSliceFilter->SetInput( inputImage );std::cout<< 9 << "\n";					// set input image
+		extractSliceFilter->Update();
 		ImageType::Pointer currentSlice = extractSliceFilter->GetOutput();std::cout<< 10 << "\n";		// get slice for later use
 
 		// update HMFilter
 		intensityEqualizeFilter->SetInput( currentSlice );std::cout<< 11 << "\n";
+		std::cout << currentSlice->GetLargestPossibleRegion() << "\n";
+		std::cout << middleSlice->GetLargestPossibleRegion() << "\n";
 		intensityEqualizeFilter->Update();std::cout<< 12 << "\n";
 
 		// use pasteFilter
